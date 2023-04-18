@@ -408,7 +408,8 @@ class CausalTransformer:
                                                                  ["batch", ...],
                                                                  ["batch", ...],
                                                                  ["batch", ...],
-                                                                 ["batch", ...]),
+                                                                 ["batch", ...],
+                                                                 ["shard", ...]),
                                                         out_axes=(["shard", "batch", ...], ["batch", ...]),
                                                         axis_resources={'shard': 'mp', 'batch': 'dp'})
 
