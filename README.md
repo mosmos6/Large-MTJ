@@ -1,3 +1,17 @@
+4/19/2023
+This is a modified version of the following MTJ that runs with JAX 0.3.25. This runs on colab with TPU_driver0.2.
+
+Important notes;
+
+1. Sorry, you'll need pro or pro+ subscription of colab because it requires high memory TPU runtime.
+
+2. I have not checked it for finetuning on TPU VM yet. This can cause errors during a process. I'm planning to cover it next month. Until then, possibly you must add further modifications to xmap by yourself or downgrade to jax 0.2.18 or 0.2.20.
+
+3. I've tested this with my slim weights for GPT-J. If you run into an error with other types of slim weights, please post an issue.
+
+(@mosmos6)
+
+
 # Branch summary
 This branch is the same as the **all** branch but with more informative logging when you're using this software to initialize a transformer network and load a checkpoint.
 
