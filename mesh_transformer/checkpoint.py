@@ -136,12 +136,7 @@ def reshard(x, old_shape):
     return out
 
 
-def read_ckpt(pytree, dir, shards_in, shards_out=None, load_opt=True):
-    move_xmap = jax.experimental.maps.xmap(fun=lambda x, _: to_bf16(x),
-                                       in_axes=(["shard", ...], ["batch", ...]),
-                                       out_axes=["shard", ...],
-                                       axis_resources={'shard': 'mp', 'batch': 'dp'})
-
+def read_ckpt_lowmem(pytree, dir, shards_in, shards_out=None, load_opt=True):
     if shards_out is None:
         shards_out = shards_in
 
@@ -149,11 +144,8 @@ def read_ckpt(pytree, dir, shards_in, shards_out=None, load_opt=True):
 
     original_opt_state = pytree["opt_state"]
 
-    n_tensors = 0
-    for file_index in range(pieces):
-        n_tensors += len(np.load(f"{dir}shard_0/{file_index}.npz").keys())
-
-    def _unshard(bar):
+    def _unshard():
+        start = time.time()
         unsharded = []
         devices = jax.devices()
         device_count = len(devices)
@@ -170,37 +162,32 @@ def read_ckpt(pytree, dir, shards_in, shards_out=None, load_opt=True):
                         array.dtype = jnp.bfloat16
                     unstacked.append(array)
 
-                x = move_xmap(jnp.stack(unstacked), np.empty(shards_in))
+                x = jax.device_put(jnp.stack(unstacked), device=devices[device_index % device_count])
 
                 if shards_out != shards_in:
                     x = reshard(x, old_flattened[device_index].shape)
                 unsharded.append(x)
 
-                bar.update(device_index)
-
                 assert x.shape == old_flattened[device_index].shape, f"Incompatible checkpoints {x.shape} vs {old_flattened[device_index].shape}"
                 device_index += 1
 
+        print(f"read from disk/gcs in {time.time() - start:.06}s")
         return unsharded
 
-    head_print("\n\n\nThis model has  ", f"{hk.data_structures.tree_size(pytree['params']):,d}".replace(",", " "), "  parameters.")
-    head_print("\nPlease wait while we load the model's tensors into the TPU memory.", flush=True)
-    with progressbar.ProgressBar(max_value=n_tensors, widgets=[progressbar.AnimatedMarker('⡀⡁⡂⡃⡄⡅⡆⡇⡈⡉⡊⡋⡌⡍⡎⡏⡐⡑⡒⡓⡔⡕⡖⡗⡘⡙⡚⡛⡜⡝⡞⡟⡠⡡⡢⡣⡤⡥⡦⡧⡨⡩⡪⡫⡬⡭⡮⡯⡰⡱⡲⡳⡴⡵⡶⡷⡸⡹⡺⡻⡼⡽⡾⡿⢀⢁⢂⢃⢄⢅⢆⢇⢈⢉⢊⢋⢌⢍⢎⢏⢐⢑⢒⢓⢔⢕⢖⢗⢘⢙⢚⢛⢜⢝⢞⢟⢠⢡⢢⢣⢤⢥⢦⢧⢨⢩⢪⢫⢬⢭⢮⢯⢰⢱⢲⢳⢴⢵⢶⢷⢸⢹⢺⢻⢼⢽⢾⢿⣀⣁⣂⣃⣄⣅⣆⣇⣈⣉⣊⣋⣌⣍⣎⣏⣐⣑⣒⣓⣔⣕⣖⣗⣘⣙⣚⣛⣜⣝⣞⣟⣠⣡⣢⣣⣤⣥⣦⣧⣨⣩⣪⣫⣬⣭⣮⣯⣰⣱⣲⣳⣴⣵⣶⣷⣸⣹⣺⣻⣼⣽⣾⣿'), '  ', progressbar.ETA(), '   ', progressbar.Counter(format=f"%(value){len(str(n_tensors))}d"), f'/{n_tensors}  ', progressbar.Percentage(), '  ', progressbar.Bar(left='[', right=']', marker='█')]) as bar:
-        try:
-            unsharded = _unshard(bar)
-        except AssertionError:
-            load_opt = False  # no opt to load in ckpt
-            del pytree['opt_state']
-            old_flattened, structure = jax.tree_flatten(pytree)
-            unsharded = _unshard(bar)
+    try:
+        unsharded = _unshard()
+    except AssertionError:
+        load_opt = False  # no opt to load in ckpt
+        del pytree['opt_state']
+        old_flattened, structure = jax.tree_flatten(pytree)
+        unsharded = _unshard()
 
     loaded_pytree = jax.tree_unflatten(structure, unsharded)
-
-    head_print("\nFinished loading the model!\n\n\n")
 
     if not load_opt:
         loaded_pytree['opt_state'] = original_opt_state
     return loaded_pytree
+
 
 
 def read_ckpt_lowmem(*args, **kwargs):
