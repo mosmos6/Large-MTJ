@@ -9,6 +9,10 @@ Important notes;
 
 3. I've tested this with my slim weights for GPT-J. If you run into an error with other types of slim weights, please post an issue.
 
+!Update on 4/28/2023!
+
+Due to the python upgrade of colab (3.9 -> 3.10), requirements.txt and util.py were modified.
+
 (@mosmos6)
 
 
